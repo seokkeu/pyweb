@@ -1,0 +1,11 @@
+f=open("user.txt",'r')
+count = 5
+#lines = f.readlines()
+with open('user.txt','r') as f:
+	for line in f:
+		a = 'edit %s\n' % line.rstrip('\n')
+		b = 'set type ldap\n'
+		c = 'set ldap-server "ldap"\n'
+		d = 'next'
+		print (a+b+c+d)
+f.close()
