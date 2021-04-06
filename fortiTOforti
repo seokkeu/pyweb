@@ -1,0 +1,265 @@
+#!/usr/bin/python3
+#slcho
+#forti to forti converter
+
+import pyfortiapi
+import requests
+import json, time, base64, datetime
+from netaddr import *
+
+#import Debug data
+#MergeData = json.load(open('./data/forti.conf'))
+#Fortidata = open('./data/forti.conf')
+Fortidata = open('')
+LogFileName='conv.log'
+DebugLogFileName='DebugConv.log'
+
+Bigb = ''
+ApiKey = ''
+firewallname = 'StockFarm'
+
+
+#Forti API로 정책 가져오기
+FwIp = ''
+FwName = ''
+FwPw = ''
+
+FwName=base64.b64decode(FwName).decode('UTF-8')
+FwPw=base64.b64decode(FwPw).decode('UTF-8')
+
+device=pyfortiapi.FortiGate(ipaddr = FwIp, username = FwName, password = FwPw)
+FirewallAddresses = device.get_firewall_address()
+FirewallAddressGroups = device.get_address_group()
+FirewallServices = device.get_firewall_service()
+FirewallServiceGroups = device.get_service_group()
+FirewallPolicies = device.get_firewall_policy()
+
+wnport={'domain': '53', 'sunrpc': '111', 'citrix-ica': '1494', 'telnet': 'tcp_23', 'tftp': '69', 'syslog': '514', 'rtsp': '554', 'secureid-udp': '5510',
+ 'gopher': '70', 'h323': '1720', 'echo': '7', 'netbios-ssn': '139', 'snmptrap': '162', 'rpc': '111', 'radius': '1645', 'pcanywhere-data': '5631',
+  'nameserver': '42', 'rsh': '514', 'sqlnet': '1521', 'uucp': '540', 'ftp': 'tcp_21', 'sip': '5060', 'whois': '43', 'smtp': '25', 'ctiqbe': '2748',
+   'hostname': '101', 'SNMP': 'udp_161', 'mobile-ip': '434', 'daytime': '13', 'ldaps': '636', 'isakmp': '500', 'netbios-dgm': '138', 'finger': '79',
+    'HTTPS': 'tcp_443', 'ldap': '389', 'kshell': '544', 'irc': '194', 'nntp': '119', 'biff': '512', 'HTTP': 'tcp_80', 'cifs': '3020', 'exec': '512',
+     'pptp': '1723', 'ntp': '123', 'aol': '5190', 'talk': '517', 'pcanywhere-status': '5632', 'pop3': '110', 'pop2': '109', 'ftp-data': '20',
+      'lotusnotes': '1352', 'rip': '520', 'xdmcp': '177', 'pim-auto-rp': '496', 'login': '513', 'dnsix': '195', 'ident': '113', 'netbios-ns': '137',
+       'kerberos': '750', 'tacacs': '49', 'who': '513', 'cmd': '514', 'bootps': '67', 'bgp': '179', 'nfs': '2049', 'klogin': '543', 'chargen': '19',
+        'www': '80', 'time': '37', 'discard': '13', 'imap4': '143', 'lpd': '515', 'bootpc': '68', 'radius-acct': '1646', 'SSH': 'tcp_22', 'redirect': '5',
+         'Information-reply': '16', 'alternate-address': '6', 'mask-reply': '18', 'timestamp-request': '13', 'router-solicitation': '10', 'mobile-redirect': '32',
+          'parameter-problem': '12', 'echo': '8', 'timestamp-reply': '14', 'conversion-error': '31', 'Information-request': '15', 'unreachable': '3',
+           'echo-reply': '0', 'source-quench': '4', 'mask-request': '17', 'time-exceeded': '11', 'router-advertisement': '9'}
+
+def now():
+    _now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S:%f")
+    return _now
+
+def MakeLog(log):
+    _now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _log = "%s, %s\n" %(_now, log)
+    #_postfix = datetime.datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(LogFileName,'a') as fp:
+            #fp.write(_log.encode('utf8'))
+            fp.write(_log)
+    except IOError as err:
+        print ('File error: ' + str(err))
+
+    return True
+
+def MakeDebugLog(log):
+    _now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _log = "%s, %s\n" %(_now, log)
+    #_postfix = datetime.datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(DebugLogFileName,'a') as fp:
+            #fp.write(_log.encode('utf8'))
+            fp.write(_log)
+    except IOError as err:
+        print ('File error: ' + str(err))
+
+    return True
+
+def ServiceGroupCheck(services):
+    GroupList = list()
+    MemberList = list()
+    for service in services:
+        for FirewallServiceGroup in FirewallServiceGroups:
+            if FirewallServiceGroup['name'] == service['name']:
+                GroupList.append(service)
+    for service in services:
+        if not service in GroupList:
+            MemberList.append(service)
+    return GroupList, MemberList
+
+def ServiceMemberCheck(services):
+    GroupMember = list()
+    for FirewallServiceGroup in FirewallServiceGroups:
+        for service in services:
+            if service['name'] == FirewallServiceGroup['name']:
+                for member in FirewallServiceGroup['member']:
+                    GroupMember.append({'name': member['name']})
+    return GroupMember
+
+def ServiceInService(services):
+    Members=list()
+    GroupList, MemberList = ServiceGroupCheck(services)
+    Members = MemberList
+    while True:
+        if not GroupList:
+            break
+        else:
+            Group = ServiceMemberCheck(GroupList)
+            GroupList, MemberList = ServiceGroupCheck(Group)
+            Members = Members + MemberList
+    return Members
+
+def GroupCheck(Groups):
+    GroupList = list()
+    MemberList = list()
+    for Group in Groups:
+        for FirewallGroup in FirewallAddressGroups:
+            if FirewallGroup['name'] == Group['name']:
+                GroupList.append(Group)
+    for GG in Groups:
+        if not GG in GroupList:
+            MemberList.append(GG)
+    return GroupList, MemberList
+
+def GroupMemberCheck(Groups):
+    GroupMember = list()
+    for FirewallGroup in FirewallAddressGroups:
+        for Group in Groups:
+            if Group['name'] == FirewallGroup['name']:
+                for member in FirewallGroup['member']:
+                    GroupMember.append({'name': member['name']})
+    return GroupMember    
+
+def GroupInGroup(Groups):
+    Members=list()    
+    GroupList, MemberList = GroupCheck(Groups)
+    Members = MemberList
+    while True:        
+        if not GroupList:
+            break
+        else:
+            Group = GroupMemberCheck(GroupList)
+            GroupList, MemberList = GroupCheck(Group)
+            Members = Members + MemberList
+    return Members
+def ipSyntaxCheck(ips):
+    result = list()
+    for ip in ips:
+        CidrIp = IPNetwork(ip).ipv4()
+        result.append(str(CidrIp))
+    return result
+def ipconv(policyid,hosts):
+    org_host = list()
+
+    for FirewallAddress in FirewallAddresses:
+        for host in hosts:
+            if FirewallAddress['name'] == host['name']:
+                if FirewallAddress['type'] == 'ipmask':
+                    IP = str(IPAddress(FirewallAddress['subnet'].split()[0]))+'/'+str(IPAddress(FirewallAddress['subnet'].split()[1]).netmask_bits())
+                    #print(str(policyid), str(IP))
+                    org_host.append(IP)
+                    #print(org_host)
+                elif FirewallAddress['type'] == 'iprange':
+                    start_ip = int(FirewallAddress['start-ip'].split('.')[3])
+                    end_ip = int(FirewallAddress['end-ip'].split('.')[3]) + 1
+                    iprange = ['.'.join(str(FirewallAddress['start-ip']).split('.')[:3])+".{}".format(i) for i in range(start_ip,end_ip)]
+                    iprange = ipSyntaxCheck(iprange)
+                    #print('IP Range : ',end='')
+                    #print(str(policyid), str(iprange))
+                    org_host = org_host + iprange
+                elif FirewallAddress['type'] == 'fqdn':
+                    Error = '[Error : ipconv] fqdn not support - object name : ' + str(FirewallAddress['name'])+ ' / policy id : ' + str(policyid)
+                    MakeLog(Error)
+                elif FirewallAddress['type'] == 'wildcard-fqdn':
+                    Error = '[Error : ipconv] wildcard-fqdn not support - object name : ' + str(FirewallAddress['name'])+ ' / policy id : ' + str(policyid)
+                    MakeLog(Error)
+    return org_host
+def ServiceConv(services):
+    ServicePorts = list()
+    dict = {}
+    for service in services:
+        for FirewallService in FirewallServices:
+            if service['name'] == FirewallService['name']:
+                if FirewallService['protocol-number'] == 6:
+                    ServicePorts.append('tcp'+'_'+str(FirewallService['tcp-portrange']))
+                    if FirewallService['udp-portrange']:
+                        ServicePorts.append('udp'+'_'+str(FirewallService['tcp-portrange']))
+                elif FirewallService['protocol-number'] == 17:
+                    ServicePorts.append('udp'+'_'+str(FirewallService['udp-portrange']))
+                    if FirewallService['tcp-portrange']:
+                        ServicePorts.append('tcp'+'_'+str(FirewallService['udp-portrange']))
+                elif FirewallService['protocol-number'] == 1 and FirewallService['icmptype'] == 8:
+                    print(service)
+
+    #print(ServicePorts)
+    #set(ServicePorts)
+    return set(ServicePorts)
+def CreatePolicy(headers):
+    ok = 0
+    fail = 0
+    URL = Bigb+'/api/v1/idcfw/createpolicy'
+    for header in headers:
+        response = requests.post(URL, headers=header)
+        json_response = response.json()
+        #print(header)
+        #print(json_response)
+        if json_response == 'OK':
+            Error = '[Information : CreatePolicy] API Call Success : '+str(json_response)+' / '+ str(header)
+            MakeDebugLog(Error)
+            ok = ok + 1
+        elif json_response == 'Policy is exist':
+            Error = '[Information : CreatePolicy] Policy is exist : '+str(json_response)+' / '+ str(header)
+            MakeDebugLog(Error)
+        else:
+            Error = '[Information : CreatePolicy] API Call Fail : '+str(json_response)+' / '+ str(header)
+            MakeDebugLog(Error)
+            fail = fail + 1
+    return ok,fail
+
+def main():
+    headerLists = []
+    TotalRuleCount=0
+    EnableRuleCount=0
+    DisableRuleCount=0
+
+    for FirewallPolicy in FirewallPolicies:
+        TotalRuleCount = TotalRuleCount + 1
+        if FirewallPolicy['status'] == 'enable':
+            EnableRuleCount = EnableRuleCount + 1
+            SourceAddressResult = GroupInGroup(FirewallPolicy['srcaddr'])
+            OriginalSourceHosts = ipconv(FirewallPolicy['policyid'],SourceAddressResult)
+            DestinationAddressResult = GroupInGroup(FirewallPolicy['dstaddr'])
+            OriginalDestinationHosts = ipconv(FirewallPolicy['policyid'],DestinationAddressResult)
+            #print(OriginalDestinationHosts)
+            #exit()
+            ServicePort = ServiceInService(FirewallPolicy['service'])
+            OriginalServicePorts = ServiceConv(ServicePort)
+            for OriginalSourceHost in OriginalSourceHosts:
+                for OriginalDestinationHost in OriginalDestinationHosts:
+                    for OriginalServicePort in OriginalServicePorts:
+                        srczone = str(FirewallPolicy['srcintf'][0]['name'])
+                        dstzone = str(FirewallPolicy['dstintf'][0]['name'])
+                        srcip = str(OriginalSourceHost)
+                        dstip = str(OriginalDestinationHost)
+                        protocol = str(OriginalServicePort.split('_')[0])
+                        dstport = str(OriginalServicePort.split('_')[1])
+                        action = str(FirewallPolicy['action'])
+                        headers = {'srcip': srcip, 'srczone': srczone, 'dstip' : dstip, 'dstzone' : dstzone, 'dstport' : dstport, 'protocol' : protocol, 'firewallname' : firewallname, 'action' : action, 'ApiKey' : ApiKey }
+                        headerLists.append(headers)
+        elif FirewallPolicy['status'] == 'disable':
+            DisableRuleCount = DisableRuleCount + 1
+            Error = '[Information : main] Disable Policy '+'- Policy id : '+str(FirewallPolicy['policyid'])
+            MakeLog(Error)
+    #### API CALL ####
+#    print(headerLists)
+#    ok,fail = CreatePolicy(headerLists)
+#    print('\nTotal Rule Count : '+ str(TotalRuleCount))
+#    print('Enable Rule Count : '+ str(EnableRuleCount))
+#    print('Disable Rule Count : '+ str(DisableRuleCount))
+#    print('API Call Success Count : '+ str(ok))
+#    print('API Call Fail Count : '+ str(fail))
+    return
+
+main()
